@@ -1,0 +1,38 @@
+
+# Dependency directories
+node_modules/
+
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional stylelint cache
+.stylelintcache
+
+
+
+
+
+
+# Visual Studio Code
+frontend/.vscode/*
+frontend/!.vscode/settings.json
+frontend/!.vscode/tasks.json
+frontend/!.vscode/launch.json
+frontend/!.vscode/extensions.json
+.history/*
+
+
+# System files
+.DS_Store
+Thumbs.db
+
+frontend/.browserslistrc
+frontend/.editorconfig
+frontend/src/assets/.gitkeep
