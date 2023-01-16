@@ -1,0 +1,53 @@
+swagger: "2.0"
+info:
+  title: TODO App
+  description: This is API for TODO App Documentation
+  version: 1.0
+  contact:
+    email: tommy3713@gmail.com
+  liscence:
+    name: Apache 2.0
+    url: "http://www.apache.org/liscences/LIS"
+  servers:
+    -url: https://localhost:8000
+    description: This is my local Server
+schemes: http
+
+
+#Return Todos From get request
+paths:
+  /todos:
+    get:
+      summary: Return array of todos.
+      description: 
+      responses:
+        200:    # status code
+          description: Successul Response
+          schema: 
+            type: array
+            items: object
+            properties:
+              id:
+                type: string
+              taskName:
+                type: string
+              status:
+                type: string
+            example: [{id: "1", taskName: "Do homework", status: "todo"}]
+    post:
+      summary: post new task
+      description: 
+      responses:
+        200:    # status code
+          description: Successul Response
+          schema: 
+            type: array
+            items: object
+            properties:
+              id:
+                type: string
+              taskName:
+                type: string
+              status:
+                type: string
+            example: [{id: "1", taskName: "Do homework", status: "todo"}]
