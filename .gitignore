@@ -36,3 +36,4 @@ Thumbs.db
 frontend/.browserslistrc
 frontend/.editorconfig
 frontend/src/assets/.gitkeep
+frontend/.angular/*
