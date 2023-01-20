@@ -1,12 +1,13 @@
 import express from 'express';
 import  { Request, Response, Application } from 'express';
 import * as t from 'io-ts'
-import { pipe } from 'fp-ts/function'
-import { fold } from 'fp-ts/lib/Either'
+import { identity, pipe } from 'fp-ts/function'
+import * as E from 'fp-ts/Either'
 import swaggerUi from 'swagger-ui-express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import YAML from 'yamljs';
+
 
 
 const app: Application = express();
@@ -22,9 +23,7 @@ const Todo = t.type({
     taskName: t.string,
     status: t.string
 });
-
 type Todo = t.TypeOf<typeof Todo>;
-// example [{id: "1", taskName: "do hw", status: "in progress"}]
 let todos: Todo[] = [];
 // RESTful todo list api
 // GET
@@ -36,7 +35,7 @@ app.post("/api/todos", (req: Request, res: Response): void =>{
     const newTodo = req.body;
     pipe(
         Todo.decode(newTodo),
-        fold(
+        E.match(
             errors => res.status(400).json({ errors }),
             validTodo => {
                 todos.push(validTodo)
@@ -47,19 +46,17 @@ app.post("/api/todos", (req: Request, res: Response): void =>{
 });
 // PUT
 app.put("/api/todos/:id", (req: Request, res: Response): void => {
-    // should be decoded
     const id = req.params.id;
     const updatedTodo = req.body
+    const updateTodo = (validId: string) => (validTodo: Todo) => {
+        const index = todos.findIndex(todo => todo.id === id)
+        todos[index] = validTodo
+        return res.status(200).send(JSON.stringify(validTodo));
+    }
     pipe(
-        Todo.decode(updatedTodo),
-        fold(
-          errors => res.status(400).json({ errors }),
-          validTodo => {
-            const index = todos.findIndex(todo => todo.id === id)
-            todos[index] = validTodo
-            return res.status(200).send(validTodo);
-          }
-        )
+        E.of(updateTodo),
+        E.ap((t.string).decode(id)),
+        E.ap(Todo.decode(updatedTodo))
     )
 });
 // DELETE
@@ -67,7 +64,7 @@ app.delete('/api/todos/:id', (req: Request, res: Response) => {
     const decoded = t.type({ id: t.string }).decode(req.params);
     pipe(
         decoded, 
-        fold(
+        E.match(
             errors => res.status(400).json({ errors }),
             ({id}) => {
                 const index = todos.findIndex(todo => todo.id === id)
