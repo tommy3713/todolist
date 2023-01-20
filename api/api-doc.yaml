@@ -16,9 +16,11 @@ schemes: http
 
 #Return Todos From get request
 paths:
-  /todos:
+  /api/todos:
     get:
-      summary: Return array of todos.
+      tags:
+          - todos
+      summary: return array of todos.
       description: 
       responses:
         200:    # status code
@@ -35,7 +37,40 @@ paths:
                 type: string
             example: [{id: "1", taskName: "Do homework", status: "todo"}]
     post:
+      tags:
+        - todos
       summary: post new task
+      description:
+      parameters:
+        - name: body
+          in: body
+          schema:
+                $ref: "#/definitions/item"
+      responses:
+        200:    # status code
+          description: Successul Response
+          schema: 
+            type: array
+            items: object
+            properties:
+              id:
+                type: string
+              taskName:
+                type: string
+              status:
+                type: string
+            example: [{id: "1", taskName: "Do homework", status: "todo"}]
+  /api/todos/{id}:
+    parameters:
+      - type: string
+        format: int64
+        name: id
+        in: path
+        required: true
+    delete:
+      tags:
+        - todos
+      summary: delete one task
       description: 
       responses:
         200:    # status code
@@ -51,3 +86,34 @@ paths:
               status:
                 type: string
             example: [{id: "1", taskName: "Do homework", status: "todo"}]
+    put:
+      tags:
+        - todos
+      summary: get certain task
+      description: 
+      responses:
+        200:    # status code
+          description: Successul Response
+          schema: 
+            type: array
+            items: object
+            properties:
+              id:
+                type: string
+              taskName:
+                type: string
+              status:
+                type: string
+            example: [{id: "1", taskName: "Do homework", status: "todo"}]
+definitions:
+  item:
+    type: object
+    required:
+      - description
+    properties:
+      id:
+        type: string
+      taskName:
+        type: string
+      status:
+        type: string
