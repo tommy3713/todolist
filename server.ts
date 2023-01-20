@@ -51,7 +51,7 @@ app.put("/api/todos/:id", (req: Request, res: Response): void => {
     const updateTodo = (validId: string) => (validTodo: Todo) => {
         const index = todos.findIndex(todo => todo.id === id)
         todos[index] = validTodo
-        return res.status(200).send(JSON.stringify(validTodo));
+        return res.status(200).send(validTodo);
     }
     pipe(
         E.of(updateTodo),
