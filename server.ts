@@ -1,8 +1,9 @@
 import express from 'express';
 import  { Request, Response, Application } from 'express';
-import * as t from 'io-ts'
-import { identity, pipe } from 'fp-ts/function'
-import * as E from 'fp-ts/Either'
+import * as t from 'io-ts';
+import { identity, pipe } from 'fp-ts/function';
+import * as E from 'fp-ts/Either';
+import * as O from 'fp-ts/Option';
 import swaggerUi from 'swagger-ui-express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
@@ -33,13 +34,16 @@ app.get("/api/todos", (req: Request, res: Response) => {
 // POST
 app.post("/api/todos", (req: Request, res: Response): void =>{
     const newTodo = req.body;
+    const stringOf = ( input: string): O.Option<string> => (input===''?O.none: O.some(input));
     pipe(
         Todo.decode(newTodo),
         E.match(
             errors => res.status(400).json({ errors }),
-            validTodo => {
-                todos.push(validTodo)
-                return res.status(200).send(validTodo)
+            todo => {
+                if(O.isNone(stringOf(todo.id))|| O.isNone(stringOf(todo.status))||O.isNone(stringOf(todo.taskName)))
+                    return res.status(400).send("Properties cannot be null");
+                todos.push(todo);
+                return res.status(200).send(todo);
             }
         )
     )
