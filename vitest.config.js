@@ -10,6 +10,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@server': path.resolve(__dirname, 'server.ts'),
+      '@todoRepo': path.resolve(__dirname, 'todoRepo.ts'),
     },
   },
 })

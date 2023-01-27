@@ -2,29 +2,43 @@ import express from 'express'
 import { Request, Response, Express } from 'express'
 import { Server } from 'http'
 import * as t from 'io-ts'
-import { identity, pipe } from 'fp-ts/function'
+import { pipe } from 'fp-ts/function'
 import * as E from 'fp-ts/Either'
-import * as O from 'fp-ts/Option'
 import * as TE from 'fp-ts/TaskEither'
+import * as A from 'fp-ts/Array'
+import { Predicate } from 'fp-ts/Predicate'
+import { allPass } from 'fp-ts-std/Predicate'
+import * as B from 'fp-ts/boolean'
+import { isNonEmptyString } from 'newtype-ts/lib/NonEmptyString'
 import swaggerUi from 'swagger-ui-express'
 import cors from 'cors'
 import bodyParser from 'body-parser'
 import YAML from 'yamljs'
-import * as dotenv from 'dotenv'
+import { Todo, todoRepoOf } from '@todoRepo'
+import { Errors } from 'io-ts'
 
 type ExpressServer = {
   start: (port: number) => TE.TaskEither<Error, void>
   close: () => TE.TaskEither<Error, void>
 }
 
-const Todo = t.type({
-  id: t.string,
-  taskName: t.string,
-  status: t.string,
+type RequestParamError = { _tag: 'RequestParamError'; msg: string }
+const requestParamErrorOf: (msg: string) => RequestParamError = (msg) => ({ _tag: 'RequestParamError', msg })
+const validationErrors2ReqParamError: (e: Errors) => RequestParamError = (e) => ({
+  _tag: 'RequestParamError',
+  msg: `${pipe(
+    e,
+    A.map(JSON.stringify),
+    A.foldLeft(
+      () => 'Request param decoding failure',
+      (x, y) => `${x}\n${y}`
+    )
+  )}`,
 })
-export type Todo = t.TypeOf<typeof Todo>
 
-dotenv.config()
+const isIdNotEmpty: Predicate<Todo> = (v: Todo) => isNonEmptyString(v.id)
+const isStatusNotEmpty: Predicate<Todo> = (v: Todo) => isNonEmptyString(v.status)
+const isTaskNameNotEmpty: Predicate<Todo> = (v: Todo) => isNonEmptyString(v.taskName)
 
 const serverOf: () => ExpressServer = () => {
   const app: Express = express()
@@ -34,58 +48,87 @@ const serverOf: () => ExpressServer = () => {
   app.use(cors())
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerJSDocs))
 
-  const todos: Todo[] = []
+  // const todos: Todo[] = []
+  const repo = todoRepoOf()
   // RESTful todo list api
   // GET
-  app.get('/api/todos', (req: Request, res: Response) => {
-    res.status(200).send(todos)
-  })
-  // POST
-  app.post('/api/todos', (req: Request, res: Response): void => {
-    const newTodo = req.body
-    const stringOf = (input: string): O.Option<string> => (input === '' ? O.none : O.some(input))
-    pipe(
-      Todo.decode(newTodo),
-      E.match(
-        (errors) => res.status(400).json({ errors }),
-        (todo) => {
-          if (O.isNone(stringOf(todo.id)) || O.isNone(stringOf(todo.status)) || O.isNone(stringOf(todo.taskName)))
-            return res.status(400).send('Properties cannot be null')
-          todos.push(todo)
-          return res.status(200).send(todo)
-        }
+  // TODO - this change CAN break the client behaviour
+  app.get('/api/todos', async (req: Request, res: Response): Promise<void> => {
+    await pipe(
+      repo.all(),
+      TE.match(
+        (_) => res.sendStatus(404),
+        (t) => res.status(200).json(t)
       )
-    )
+    )()
   })
-  // PUT
-  app.put('/api/todos/:id', (req: Request, res: Response): void => {
-    const id = req.params.id
-    const updatedTodo = req.body
-    const updateTodo = (validId: string) => (validTodo: Todo) => {
-      const index = todos.findIndex((todo) => todo.id === id)
-      todos[index] = validTodo
-      return res.status(200).send(validTodo)
-    }
-    pipe(E.of(updateTodo), E.ap(t.string.decode(id)), E.ap(Todo.decode(updatedTodo)))
-  })
-  // DELETE
-  app.delete('/api/todos/:id', (req: Request, res: Response) => {
-    const decoded = t.type({ id: t.string }).decode(req.params)
-    pipe(
-      decoded,
+
+  // POST
+  app.post('/api/todos', async (req: Request, res: Response): Promise<void> => {
+    await pipe(
+      Todo.decode(req.body),
       E.match(
-        (errors) => res.status(400).json({ errors }),
-        ({ id }) => {
-          const index = todos.findIndex((todo) => todo.id === id)
-          todos.splice(index, 1)
-          return res.status(200).json(id)
-        }
+        (errors) => Promise.resolve(res.status(400).json({ errors })),
+        (todo) =>
+          B.fold(
+            () => Promise.resolve(res.status(400).send('Properties cannot be null')),
+            () =>
+              pipe(repo.insert(todo), (x) =>
+                pipe(
+                  x,
+                  TE.match(
+                    (e) => res.status(500).send(e.msg),
+                    (todo) => res.status(201).send(todo)
+                  )
+                )
+              )()
+          )(allPass([isIdNotEmpty, isStatusNotEmpty, isTaskNameNotEmpty])(todo))
       )
     )
   })
 
-  app.get('/', (req: Request, res: Response): void => {
-    res.send('Hello Typescript!! TESTING')
+  // PUT
+  app.put('/api/todos/:id', async (req: Request, res: Response): Promise<void> => {
+    const id = req.params.id
+    const updatedTodo = req.body
+    // TODO - provided the id is not generated by the server, not reasonable to find a Todo with this `id` when the whole updated Todo is provided
+    const updateTodo = (validId: string) => (validTodo: Todo) => repo.update(validTodo)
+
+    await pipe(
+      TE.Do,
+      TE.apS('id', pipe(TE.fromEither(t.string.decode(id)), TE.mapLeft(validationErrors2ReqParamError))),
+      TE.apS('todo', pipe(TE.fromEither(Todo.decode(updatedTodo)), TE.mapLeft(validationErrors2ReqParamError))),
+      TE.chain(({ id, todo }) =>
+        pipe(
+          updateTodo(id)(todo),
+          TE.mapLeft((e) => requestParamErrorOf(e.msg))
+        )
+      ),
+      TE.match(
+        (e) => res.status(400).send(e.msg),
+        (todo) => res.status(200).send(todo)
+      )
+    )()
+  })
+
+  // DELETE
+  app.delete('/api/todos/:id', async (req: Request, res: Response): Promise<void> => {
+    const decoded = t.type({ id: t.string }).decode(req.params)
+
+    await pipe(
+      decoded,
+      E.match(
+        (errors) => Promise.resolve(res.status(400).json({ errors })),
+        ({ id }) =>
+          pipe(
+            repo.delete(id),
+            TE.match(
+              (e) => res.status(500).send(e.msg),
+              (t) => res.status(200).json(t)
+            )
+          )()
+      )
+    )
   })
 
   let server: Server
@@ -114,74 +157,3 @@ const serverOf: () => ExpressServer = () => {
 }
 
 export const server = serverOf()
-
-// const app: Express = express()
-// const PORT = 8000
-// const swaggerJSDocs = YAML.load('api/api-doc.yaml')
-
-// app.use(bodyParser.json())
-// app.use(cors())
-// app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerJSDocs))
-
-// const Todo = t.type({
-//   id: t.string,
-//   taskName: t.string,
-//   status: t.string,
-// })
-// type Todo = t.TypeOf<typeof Todo>
-// let todos: Todo[] = []
-// RESTful todo list api
-// GET
-// app.get('/api/todos', (req: Request, res: Response) => {
-//   res.status(200).send(todos)
-// })
-// POST
-// app.post('/api/todos', (req: Request, res: Response): void => {
-//   const newTodo = req.body
-//   const stringOf = (input: string): O.Option<string> => (input === '' ? O.none : O.some(input))
-//   pipe(
-//     Todo.decode(newTodo),
-//     E.match(
-//       (errors) => res.status(400).json({ errors }),
-//       (todo) => {
-//         if (O.isNone(stringOf(todo.id)) || O.isNone(stringOf(todo.status)) || O.isNone(stringOf(todo.taskName)))
-//           return res.status(400).send('Properties cannot be null')
-//         todos.push(todo)
-//         return res.status(200).send(todo)
-//       }
-//     )
-//   )
-// })
-// // PUT
-// app.put('/api/todos/:id', (req: Request, res: Response): void => {
-//   const id = req.params.id
-//   const updatedTodo = req.body
-//   const updateTodo = (validId: string) => (validTodo: Todo) => {
-//     const index = todos.findIndex((todo) => todo.id === id)
-//     todos[index] = validTodo
-//     return res.status(200).send(validTodo)
-//   }
-//   pipe(E.of(updateTodo), E.ap(t.string.decode(id)), E.ap(Todo.decode(updatedTodo)))
-// })
-// DELETE
-// app.delete('/api/todos/:id', (req: Request, res: Response) => {
-//   const decoded = t.type({ id: t.string }).decode(req.params)
-//   pipe(
-//     decoded,
-//     E.match(
-//       (errors) => res.status(400).json({ errors }),
-//       ({ id }) => {
-//         const index = todos.findIndex((todo) => todo.id === id)
-//         todos.splice(index, 1)
-//         return res.status(200).json(id)
-//       }
-//     )
-//   )
-// })
-
-// app.get('/', (req: Request, res: Response): void => {
-//   res.send('Hello Typescript!! TESTING')
-// })
-// app.listen(PORT, (): void => {
-//   console.log(`Server Running here  https://localhost:${PORT}`)
-// })
